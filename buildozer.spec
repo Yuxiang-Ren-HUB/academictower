@@ -6,7 +6,7 @@ source.dir = .
 source.include_exts = py,webp,ogg
 source.exclude_dirs = build, .github, __pycache__
 version = 1.0
-requirements = python3,pygame==2.5.2
+requirements = python3,cython,pygame==2.5.2
 orientation = portrait
 fullscreen = 1
 android.permissions =
