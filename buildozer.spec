@@ -17,8 +17,8 @@ android.accept_sdk_license = True
 android.arch = arm64-v8a
 p4a.bootstrap = sdl2
 log_level = 2
-warn_on_root = 1
+warn_on_root = 0
 
 [buildozer]
 log_level = 2
-warn_on_root = 1
+warn_on_root = 0
