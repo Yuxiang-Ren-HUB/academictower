@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+dist/
+capacitor-app/
+gitee_test/
+*.spec
+*.apk
+*.pkl
+floor23_save.pkl

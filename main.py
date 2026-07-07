@@ -13,8 +13,14 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 
-_GAME_DIR = Path(__file__).parent
-_SAVE_DIR = Path(os.environ['ANDROID_PRIVATE']) if 'ANDROID_PRIVATE' in os.environ else _GAME_DIR
+if getattr(sys, 'frozen', False):
+    # PyInstaller打包后：资源文件在临时解压目录（sys._MEIPASS），
+    # 但存档要放在exe旁边，不能放临时目录——否则关闭程序就被清空，存档会丢
+    _GAME_DIR = Path(sys._MEIPASS)
+    _SAVE_DIR = Path(sys.executable).parent
+else:
+    _GAME_DIR = Path(__file__).parent
+    _SAVE_DIR = Path(os.environ['ANDROID_PRIVATE']) if 'ANDROID_PRIVATE' in os.environ else _GAME_DIR
 SAVE_FILE = _SAVE_DIR / 'floor23_save.pkl'
 
 
@@ -90,7 +96,7 @@ SHOP_ITEMS = [
 
 NPC_DIALOGS = {
     'A': ["欢迎来到23层科研大厦！",
-          "收集门禁卡(蓝)、实验通行证(红)、数据密钥(黄)开门。",
+          "收集蓝钥匙、红钥匙、黄钥匙，用来开对应颜色的门。",
           "击败23层答辩主席即可通关！"],
     'B': ["前面的审稿人很强，建议先提升学术能力。", "加油！"],
     'C': ["你已到达高层，答辩主席就在23层。", "相信自己，你可以的！",
@@ -444,7 +450,63 @@ ACHIEVEMENTS = {
     'rage_full': {'name': '忍无可忍', 'desc': '怒气100时击败boss（恶导路线）'},
 }
 
-                                                              
+
+INTRO_PAGES = [
+    [
+        "★  序  章  ★",
+        "",
+        "公元某年，深秋。",
+        "",
+        "你坐在实验室里，盯着空白的文档。",
+        "导师的话还在耳边回响：",
+        "「数据不够。结论太弱。重做。」",
+        "",
+        "就在这时，桌上的台灯突然闪烁——",
+        "一道光将你卷入了一个陌生的空间。",
+        "",
+        "眼前矗立着一座高塔，塔门上刻着：",
+        "",
+        "★  学  术  魔  塔  ★",
+    ],
+    [
+        "★  塔  语  ★",
+        "",
+        "一个声音从四面八方传来：",
+        "",
+        "「欢迎。此塔共二十三层。」",
+        "「每一层，都是无数学子走过或未曾走完的路。」",
+        "「文献的迷宫、数据的荒漠，」",
+        "「审稿人的诘问、答辩的深渊……」",
+        "「皆在其中。」",
+        "",
+        "「能登顶者，方得学位，重返人间。」",
+        "",
+        "「当然——你也可以选择放弃。」",
+        "「很多人都这么做了。」",
+        "",
+        "你握紧了手中的草稿纸。",
+    ],
+    [
+        "★  操  作  说  明  ★",
+        "",
+        "方向键 / WASD    移动",
+        "Enter / 空格     确认、对话",
+        "数字键 1         确认选择",
+        "数字键 0         放弃（慎重）",
+        "",
+        "【目标】",
+        "探索二十三层，收集资源，",
+        "击败每层的「怪物」，登顶魔塔。",
+        "",
+        "【提示】",
+        "遇到NPC时多聊聊，",
+        "他们都曾在这座塔里挣扎过。",
+        "",
+        "      准备好了吗？",
+    ],
+]
+
+
 EVIL_CHORES = [
     ("导师：帮我做个PPT，明天开会用！\n你熬夜赶制到凌晨三点...",              -200,  0,  0, -50),
     ("导师：现在有个好项目，帮我写项目书，明天要！\n你觉得头发掉了一把...",      -300,  0,  0, -80),
@@ -865,7 +927,25 @@ class Game:
         except Exception:
             self.cover_img = None
 
+        _other_dir = _GAME_DIR / 'fig' / 'other'
+        self.other_imgs = []
+        for _i in range(1, 20):
+            _p = str(_other_dir / f'{_i}.webp')
+            try:
+                _raw = pygame.image.load(_p).convert()
+                _iw, _ih = _raw.get_size()
+                _sc = max(W / _iw, H / _ih)
+                _nw, _nh = int(_iw * _sc), int(_ih * _sc)
+                _surf = pygame.Surface((W, H))
+                _surf.blit(pygame.transform.smoothscale(_raw, (_nw, _nh)),
+                           ((W - _nw) // 2, (H - _nh) // 2))
+                self.other_imgs.append(_surf)
+            except Exception:
+                break
+        self.intro_bg_imgs: list = []
+
         self.state = 'cover'
+        self.intro_page = 0
         self._abandon_btn: Optional[pygame.Rect] = None
                 
         self._touch_start: Optional[tuple] = None                
@@ -958,7 +1038,7 @@ class Game:
             'c': '咖啡',     'e': '能量饮料', 'p': '大补丸',
             'g': '知识点',   'G': '知识点',
             'w': '学术武器', 'W': '学术武器',
-            's': '抗压盾',   'S': '顶级抗压盾',
+            's': '扛压盾',   'S': '顶级扛压盾',
         }
         self.tile_imgs: dict = {}
         for _key, _nm in {**_char_map, **_item_map}.items():
@@ -989,8 +1069,9 @@ class Game:
             'social': f'{MUSIC_DIR}/3.mp3',
             'evil': f'{MUSIC_DIR}/4.mp3',
         }
-        self.music_begin = f'{MUSIC_DIR}/begin.mp3'
-        self.music_end   = f'{MUSIC_DIR}/end.mp3'
+        self.music_begin  = f'{MUSIC_DIR}/begin.mp3'
+        self.music_end    = f'{MUSIC_DIR}/end.mp3'
+        self.music_hidden = f'{MUSIC_DIR}/music.mp3'
         self._current_bgm = None                
         try:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
@@ -1325,7 +1406,7 @@ class Game:
         elif route == 'social':
             ktype = random.choice(['b', 'r', 'y'])
             p.keys[ktype] += 1
-            kname = {'b': '门禁卡', 'r': '实验通行证', 'y': '数据密钥'}
+            kname = {'b': '蓝钥匙', 'r': '红钥匙', 'y': '黄钥匙'}
             self._log(f"【动用关系】获得{kname[ktype]}！")
         elif route == 'evil':
             if self.chore_popup:
@@ -1564,7 +1645,7 @@ class Game:
 
     def _pick_key(self, r: int, c: int, ktype: str):
         slot  = {'k': 'b', 'r': 'r', 'y': 'y'}
-        names = {'k': '门禁卡×2', 'r': '实验通行证×1', 'y': '数据密钥（黄）'}
+        names = {'k': '蓝钥匙×2', 'r': '红钥匙×1', 'y': '黄钥匙×1'}
         self.player.keys[slot[ktype]] += 1
         self.map_state[r][c] = '.'
         self.player.x, self.player.y = c, r
@@ -1573,7 +1654,7 @@ class Game:
     def _try_door(self, r: int, c: int):
         cell = self.map_state[r][c]
         kmap  = {'K': 'b', 'R': 'r', 'Y': 'y'}
-        kname = {'b': '门禁卡', 'r': '瀹為獙閫氳璇', 'y': '数据密钥'}
+        kname = {'b': '蓝钥匙', 'r': '红钥匙', 'y': '黄钥匙'}
         kt = kmap[cell]
         free = 'free_door' in self.player.talents and random.random() < 0.35
         if self.player.keys[kt] > 0 or free:
@@ -1679,7 +1760,20 @@ class Game:
             self._touch_start = (event.x * W, event.y * H)
                                          
             if self.state == 'cover':
-                self.state = 'route_select'
+                self.state = 'intro'
+                self.intro_page = 0
+                if self.other_imgs:
+                    self.intro_bg_imgs = random.choices(self.other_imgs, k=len(INTRO_PAGES))
+                return
+            if self.state == 'intro':
+                tx = event.x * W
+                if tx < W // 2 and self.intro_page > 0:
+                    self.intro_page -= 1
+                else:
+                    self.intro_page += 1
+                    if self.intro_page >= len(INTRO_PAGES):
+                        self.state = 'route_select'
+                        self.intro_page = 0
                 return
             if self.state == 'won' and self.showing_end_cg:
                 self.showing_end_cg = False
@@ -1706,7 +1800,33 @@ class Game:
 
         if self.state == 'cover':
             if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
-                self.state = 'route_select'
+                self.state = 'intro'
+                self.intro_page = 0
+                if self.other_imgs:
+                    self.intro_bg_imgs = random.choices(self.other_imgs, k=len(INTRO_PAGES))
+            return
+        if self.state == 'intro':
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.state = 'route_select'
+                    self.intro_page = 0
+                elif event.key in (pygame.K_LEFT, pygame.K_BACKSPACE):
+                    if self.intro_page > 0:
+                        self.intro_page -= 1
+                else:
+                    self.intro_page += 1
+                    if self.intro_page >= len(INTRO_PAGES):
+                        self.state = 'route_select'
+                        self.intro_page = 0
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mx = event.pos[0]
+                if mx < W // 2 and self.intro_page > 0:
+                    self.intro_page -= 1
+                else:
+                    self.intro_page += 1
+                    if self.intro_page >= len(INTRO_PAGES):
+                        self.state = 'route_select'
+                        self.intro_page = 0
             return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                             
@@ -1719,6 +1839,7 @@ class Game:
                                  self.player.won, self.player.dead])
                     and self._abandon_btn and self._abandon_btn.collidepoint(event.pos)):
                 self.tanping_msg = "胜败不由己，大丈夫重头再来"
+                self._play_music(self.music_hidden)
             return
         if event.type != pygame.KEYDOWN:
             return
@@ -1766,6 +1887,7 @@ class Game:
             elif key == pygame.K_t and self.player.route == 'evil':
                 self.chore_popup = None
                 self.tanping_msg = "胜败不由己，大丈夫重头再来"
+                self._play_music(self.music_hidden)
             return
 
                                                                                                                      
@@ -1799,6 +1921,7 @@ class Game:
                 self.state = 'route_select'
                 self.save_exists = SAVE_FILE.exists()
                 self._current_bgm = None
+                self._play_music(self.music_hidden)
             elif key in (pygame.K_2, pygame.K_KP2, pygame.K_ESCAPE):
                 self.tanping_msg = None
             return
@@ -1851,7 +1974,7 @@ class Game:
         if key == pygame.K_q:
             self._use_skill()
             return
-        if key == pygame.K_x:
+        if key in (pygame.K_x, pygame.K_0):
             self.tanping_msg = "胜败不由己，大丈夫重头再来"
             return
         move_map = {
@@ -1898,16 +2021,91 @@ class Game:
         return cy + font.get_height()
 
                                                                                                                             
+    def _draw_intro(self):
+        if self.intro_bg_imgs and self.intro_page < len(self.intro_bg_imgs):
+            self.screen.blit(self.intro_bg_imgs[self.intro_page], (0, 0))
+            overlay = pygame.Surface((W, H), pygame.SRCALPHA)
+            overlay.fill((8, 6, 18, 185))
+            self.screen.blit(overlay, (0, 0))
+        else:
+            self.screen.fill((10, 8, 20))
+        page_lines = INTRO_PAGES[self.intro_page]
+        is_last = self.intro_page == len(INTRO_PAGES) - 1
+
+        pygame.draw.line(self.screen, (70, 60, 110), (30, 52), (W - 30, 52), 1)
+        pygame.draw.line(self.screen, (70, 60, 110), (30, H - 62), (W - 30, H - 62), 1)
+
+        y = 68
+        for i, line in enumerate(page_lines):
+            if line == "":
+                y += 10
+                continue
+            if i == 0:
+                color, font = (240, 210, 100), self.font_lg
+                self._txt(line, font, color, W // 2, y, center=True)
+            elif line.startswith("「"):
+                color, font = (160, 205, 230), self.font_md
+                self._txt(line, font, color, W // 2, y, center=True)
+            elif line.startswith("【"):
+                color, font = (160, 230, 160), self.font_md
+                self._txt(line, font, color, W // 2, y, center=True)
+            elif "★" in line:
+                color, font = (240, 210, 100), self.font_lg
+                self._txt(line, font, color, W // 2, y, center=True)
+            elif "    " in line and not line.startswith(" "):
+                parts = line.split("    ", 1)
+                key_txt = parts[0].strip()
+                val_txt = parts[1].strip()
+                font = self.font_md
+                try:
+                    img_k = font.render(key_txt, True, (180, 210, 255))
+                    img_v = font.render(val_txt, True, (220, 220, 200))
+                    self.screen.blit(img_k, (W // 2 - 14 - img_k.get_width(), y))
+                    self.screen.blit(img_v, (W // 2 + 14, y))
+                except Exception:
+                    self._txt(line, font, (200, 200, 215), W // 2, y, center=True)
+            else:
+                color, font = (200, 200, 215), self.font_md
+                self._txt(line, font, color, W // 2, y, center=True)
+            y += self.font_md.get_height() + 5
+
+        total = len(INTRO_PAGES)
+        for i in range(total):
+            c = (210, 185, 90) if i == self.intro_page else (55, 55, 80)
+            pygame.draw.circle(self.screen, c, (W // 2 - (total - 1) * 14 + i * 28, H - 52), 5)
+
+        btn_y = H - 38
+        prev_color = (160, 155, 120) if self.intro_page > 0 else (60, 58, 50)
+        next_color = (230, 200, 80) if is_last else (160, 200, 160)
+        next_label = "开始游戏 ▶" if is_last else "下一页 ▶"
+        self._txt("◀ 上一页", self.font_md, prev_color, W // 4, btn_y, center=True)
+        self._txt(next_label, self.font_md, next_color, W * 3 // 4, btn_y, center=True)
+        pygame.display.flip()
+
     def _draw_route_select(self):
         self.screen.fill(C_BG)
-        self._txt("选择你的导师", self.font_xl, C_TEXT, W//2, 30, center=True)
-        self._txt("这将决定你整个研究生涯的命运...", self.font_sm, (150,150,180), W//2, 72, center=True)
+        self._txt("选择你的导师", self.font_xl, C_TEXT, W//2, 14, center=True)
 
-        card_w, card_h = W-40, 150
+        # 主角介绍小卡
+        pc_x, pc_y, pc_h = 20, 50, 48
+        pygame.draw.rect(self.screen, (25, 30, 45), (pc_x, pc_y, W-40, pc_h), border_radius=6)
+        pygame.draw.rect(self.screen, (100, 140, 200), (pc_x, pc_y, W-40, pc_h), 1, border_radius=6)
+        if 'P' in self.tile_imgs:
+            portrait = pygame.transform.smoothscale(self.tile_imgs['P'], (40, 40))
+            self.screen.blit(portrait, (pc_x+4, pc_y+4))
+            txt_x = pc_x + 50
+        else:
+            txt_x = pc_x + 10
+        self._txt("主角：你", self.font_md, (200, 220, 255), txt_x, pc_y+5)
+        self._txt("即将完成论文的研究生  身陷学术魔塔，登顶方可毕业", self.font_sm, (160, 170, 200), txt_x, pc_y+27)
+
+        self._txt("这将决定你整个研究生涯的命运...", self.font_sm, (150,150,180), W//2, 106, center=True)
+
+        card_w, card_h = W-40, 140
         order = ['kind', 'pro', 'social', 'evil']
         for i, rk in enumerate(order):
             rd = ROUTES[rk]
-            x, y = 20, 100 + i * (card_h + 10)
+            x, y = 20, 120 + i * (card_h + 10)
             pygame.draw.rect(self.screen, (30,30,50), (x, y, card_w, card_h), border_radius=8)
             pygame.draw.rect(self.screen, rd['color'], (x, y, card_w, card_h), 2, border_radius=8)
             pygame.draw.rect(self.screen, rd['color'], (x+8, y+8, 32, 32), border_radius=6)
@@ -1954,7 +2152,7 @@ class Game:
         self._txt(f"知识:{p.gold}", self.font_sm, C_GOLD, 320, 28)
 
              
-        knames = {'b':'门禁','r':'通行','y':'密钥'}
+        knames = {'b':'蓝匙','r':'红匙','y':'黄匙'}
         kcolors = {'b':C_KEY_B,'r':C_KEY_R,'y':C_KEY_Y}
         x = 8
         for kt in ('b','r','y'):
@@ -1963,7 +2161,7 @@ class Game:
         ab = pygame.Rect(386, 46, 76, 22)
         pygame.draw.rect(self.screen, (80, 30, 30), ab, border_radius=4)
         pygame.draw.rect(self.screen, (160, 60, 60), ab, 1, border_radius=4)
-        self._txt("X:放弃", self.font_sm, (220, 100, 100), ab.x+6, ab.y+3)
+        self._txt("0:放弃", self.font_sm, (220, 100, 100), ab.x+6, ab.y+3)
         self._abandon_btn = ab
 
                 
@@ -2010,9 +2208,9 @@ class Game:
         if cell in ('#','.'): return ''
         if cell in '123456789': return ENEMIES[int(cell)][0][:2]
         if cell in ITEMS:       return ITEMS[cell][0][:2]
-        if cell == 'k': return '蓝卡'
-        if cell == 'r': return '红卡'
-        if cell == 'y': return '黄卡'
+        if cell == 'k': return '蓝匙'
+        if cell == 'r': return '红匙'
+        if cell == 'y': return '黄匙'
         if cell == 'K': return '蓝门'
         if cell == 'R': return '红门'
         if cell == 'Y': return '黄门'
@@ -2050,14 +2248,40 @@ class Game:
              
         px = MAP_X0 + p.x * TILE
         py = MAP_Y0 + p.y * TILE
+        rc = self._route()['color']
+        t = pygame.time.get_ticks() / 1000.0
+        pulse = (math.sin(t * 2.5) + 1) / 2  # 0.0~1.0，每秒~2.5周期
+
+        # 向外扩散的呼吸光晕（3圈，从外到内透明度递增）
+        for expand in (8, 5, 3):
+            alpha = int(pulse * 110 * (1 - expand / 10))
+            gs = pygame.Surface((TILE - 1 + expand * 2, TILE - 1 + expand * 2), pygame.SRCALPHA)
+            pygame.draw.rect(gs, (*rc, alpha),
+                             (0, 0, TILE - 1 + expand * 2, TILE - 1 + expand * 2),
+                             expand, border_radius=5)
+            self.screen.blit(gs, (px - expand, py - expand))
+
+        # 格子填充与主边框
+        fill = pygame.Surface((TILE - 1, TILE - 1), pygame.SRCALPHA)
+        fill.fill((*rc, 40 + int(pulse * 40)))
+        self.screen.blit(fill, (px, py))
+        pygame.draw.rect(self.screen, rc, (px, py, TILE - 1, TILE - 1), 3)
+
+        # 头像
         if 'P' in self.tile_imgs:
-                             
-            pygame.draw.rect(self.screen, self._route()['color'],
-                             (px, py, TILE-1, TILE-1), 3)
             self.screen.blit(self.tile_imgs['P'], (px + 1, py + 1))
         else:
-            pygame.draw.rect(self.screen, self._route()['color'], (px+3, py+3, TILE-7, TILE-7))
-            self._txt("浣", self.font_sm, (0, 0, 0), px+TILE//2, py+TILE//2-7, center=True)
+            pygame.draw.rect(self.screen, rc, (px + 3, py + 3, TILE - 7, TILE - 7))
+            self._txt("你", self.font_sm, (0, 0, 0), px + TILE // 2, py + TILE // 2 - 7, center=True)
+
+        # 上方浮动小箭头（随脉冲上下轻微移动）
+        arrow_cx = px + TILE // 2
+        arrow_y  = py - 14 + int(pulse * 5)
+        pts = [(arrow_cx - 7, arrow_y), (arrow_cx + 7, arrow_y), (arrow_cx, arrow_y + 9)]
+        pygame.draw.polygon(self.screen, (30, 20, 20), pts)       # 深色描边
+        pygame.draw.polygon(self.screen, (30, 20, 20), pts, 2)
+        inner = [(arrow_cx - 5, arrow_y + 2), (arrow_cx + 5, arrow_y + 2), (arrow_cx, arrow_y + 8)]
+        pygame.draw.polygon(self.screen, (255, 240, 180), inner)  # 暖白色填充
 
                                                                                                                                      
     def _draw_log(self):
@@ -2138,17 +2362,36 @@ class Game:
             portrait_name = None
         portrait = self.portraits.get(portrait_name) if portrait_name else None
 
+        # NPC头像左侧
         if portrait:
             pw, ph = portrait.get_size()
-            py = rect.y + (box_h - ph) // 2
-            self.screen.blit(portrait, (rect.x + 8, py))
+            npc_py = rect.y + (box_h - ph) // 2
+            self.screen.blit(portrait, (rect.x + 8, npc_py))
             text_x = rect.x + pw + 18
         else:
             text_x = rect.x + 12
 
-                
+        # 玩家小头像右侧（和NPC形成左右反差）
+        player_portrait = self.portraits.get('你')
+        if player_portrait:
+            pp_h = 70
+            pp_w = int(player_portrait.get_width() * pp_h / player_portrait.get_height())
+            pp_surf = pygame.transform.smoothscale(player_portrait, (pp_w, pp_h))
+            pp_x = rect.right - pp_w - 6
+            pp_y = rect.bottom - pp_h - 6
+            # 玩家头像背景（暖色调，与NPC冷色调对比）
+            rc = self._route()['color'] if p else (100, 140, 200)
+            bg = pygame.Surface((pp_w + 4, pp_h + 4), pygame.SRCALPHA)
+            bg.fill((*rc, 50))
+            self.screen.blit(bg, (pp_x - 2, pp_y - 2))
+            pygame.draw.rect(self.screen, rc, (pp_x - 2, pp_y - 2, pp_w + 4, pp_h + 4), 2)
+            self.screen.blit(pp_surf, (pp_x, pp_y))
+            text_right = pp_x - 8
+        else:
+            text_right = rect.right - 10
+
         page = min(self.npc_page, len(self.npc_dialog) - 1)
-        text_w = rect.right - text_x - 10
+        text_w = text_right - text_x
         self._txt_wrap(self.npc_dialog[page], self.font_md, C_TEXT, text_x, rect.y + 16, text_w)
         self._txt(f"({page+1}/{len(self.npc_dialog)})  回车/空格 继续",
                   self.font_sm, (150, 150, 180), rect.x + 10, rect.bottom - 24)
@@ -2358,7 +2601,7 @@ class Game:
             self._txt(f"学术能力 {p.atk}    抗压力+{p.def_}    知识点+{p.gold}",
                       self.font_sm, (180, 220, 180), W//2, dy, center=True)
             dy += 26
-            self._txt(f"精力上限 {p.hp_max}    探索 {len(p.visited_floors)}/23 灞",
+            self._txt(f"精力上限 {p.hp_max}    探索 {len(p.visited_floors)}/23 层",
                       self.font_sm, (160, 180, 200), W//2, dy, center=True)
             if p.route == 'evil' and p.yanbi_count > 0:
                 dy += 26
@@ -2403,6 +2646,9 @@ class Game:
             self.screen.blit(hint_bar, (0, H-36))
             self._txt("点击或按任意键开始", self.font_md, (210, 210, 190), W//2, H-30, center=True)
             pygame.display.flip()
+            return
+        if self.state == 'intro':
+            self._draw_intro()
             return
         if self.state == 'route_select':
             self._draw_route_select()
